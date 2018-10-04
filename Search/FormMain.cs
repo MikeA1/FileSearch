@@ -42,7 +42,7 @@ namespace Search
             InitializeComponent();
 
             // ToDo: should remember last directory.
-            const string DEFAULT_STARTING_DIRECTORY = @"C:\_git\";
+            const string DEFAULT_STARTING_DIRECTORY = @"C:\_projects\";
 
             if (Directory.Exists(DEFAULT_STARTING_DIRECTORY))
             {
