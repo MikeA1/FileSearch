@@ -42,17 +42,16 @@ namespace Search
             InitializeComponent();
 
             // ToDo: should remember last directory.
-            const string DEFAULT_STARTING_DIRECTORY = @"C:\_projects\";
+            string lastDirectory = GetLastDirectory();
 
-            if (Directory.Exists(DEFAULT_STARTING_DIRECTORY))
+            if (lastDirectory != null && Directory.Exists(lastDirectory))
             {
-                textBoxStartingDirectory.Text = DEFAULT_STARTING_DIRECTORY;
+                textBoxStartingDirectory.Text = lastDirectory;
             }
             else
             {
                 textBoxStartingDirectory.Text = Directory.GetCurrentDirectory();
             }
-            
             Icon = SystemIcons.Question;
         }
 
@@ -144,20 +143,20 @@ namespace Search
         }
 
         // Processed in a separate thread, called by worker.RunWorkerAsync(parameters)
-        private void workStart(object sender, DoWorkEventArgs e)
+        private void workStart(object sender, DoWorkEventArgs args)
         {
             // Grab the instance of this background worker (used to report progress)
             BackgroundWorker workerBee = sender as BackgroundWorker;
             // Extract parameters
-            SearchParameters parameters = (SearchParameters)e.Argument;
+            SearchParameters parameters = (SearchParameters)args.Argument;
             if (string.IsNullOrWhiteSpace(parameters.Directory))
             {
-                e.Result = "Root Folder is blank";
+                args.Result = "Root Folder is blank";
                 return;
             }
             else if (!System.IO.Directory.Exists(parameters.Directory))
             {
-                e.Result = "Root Folder does not exist";
+                args.Result = "Root Folder does not exist";
                 return;
             }
             // Define list of directories to process
@@ -188,15 +187,31 @@ namespace Search
                 // Add sub-directories
                 if (parameters.DirectoriesDeep > directory.Value)
                 {
-                    string[] subDirectories = Directory.GetDirectories(directory.Key);
-                    foreach (string subDirectory in subDirectories)
+                    try
                     {
-                        directories.Add(subDirectory, (directory.Value + 1));
+                        string[] subDirectories = Directory.GetDirectories(directory.Key);
+                        foreach (string subDirectory in subDirectories)
+                        {
+                            directories.Add(subDirectory, (directory.Value + 1));
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        Console.Error.WriteLine(exception);
+                        ReportProgress(workerBee, $"Exception: {exception.Message}");
                     }
                 }
                 // Grab files
                 List<string> files = new List<string>();
-                files.AddRange(Directory.GetFiles(directory.Key));
+                try
+                {
+                    files.AddRange(Directory.GetFiles(directory.Key));
+                }
+                catch (Exception exception)
+                {
+                    Console.Error.WriteLine(exception);
+                    ReportProgress(workerBee, $"Exception: {exception.Message}");
+                }
                 if (files.Count > 0)
                 {
                     fileCount += files.Count;
@@ -242,22 +257,35 @@ namespace Search
                                 foreach (string file in files)
                                 {
                                     if (workerBee.CancellationPending) break;
-                                    ReportProgress(workerBee, string.Format("Searching '{0}' for expression '{1}'", file, parameters.FileContent));
-                                    using (StreamReader stream = new StreamReader(file))
+                                    ReportProgress(workerBee, $"Searching '{file}' for expression '{parameters.FileContent}'");
+                                    try
                                     {
-                                        string line;
-                                        int lineNumber = 0;
-                                        while ((line = stream.ReadLine()) != null)
+                                        using (StreamReader stream = new StreamReader(file))
                                         {
-                                            if (workerBee.CancellationPending) break;
-                                            if (regexFileContent.Match(line).Success)
+                                            string line;
+                                            int lineNumber = 0;
+                                            while ((line = stream.ReadLine()) != null)
                                             {
-                                                // Report success
-                                                ReportProgress(workerBee, file, line, lineNumber);
-                                                break;
+                                                if (workerBee.CancellationPending) break;
+                                                if (regexFileContent.Match(line).Success)
+                                                {
+                                                    // Report success
+                                                    ReportProgress(workerBee, file, line, lineNumber);
+                                                    break;
+                                                }
+                                                lineNumber++;
                                             }
-                                            lineNumber++;
                                         }
+                                    }
+                                    catch (System.IO.IOException exception)
+                                    {
+                                        Console.Error.WriteLine(exception);
+                                        ReportProgress(workerBee, $"Exception: {exception.Message}");
+                                    }
+                                    catch (Exception exception)
+                                    {
+                                        Console.Error.WriteLine(exception);
+                                        ReportProgress(workerBee, $"Exception: {exception.Message}");
                                     }
                                 }
                             }
@@ -266,7 +294,8 @@ namespace Search
                 }
 
             } while (directories.Count > 0);
-            e.Result = string.Format("Processed {0} files", fileCount);
+            args.Result = string.Format("Processed {0} files", fileCount);
+            SetLastDirectory(parameters.Directory);
         }
 
         private void grid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
@@ -285,11 +314,25 @@ namespace Search
                     if (line.HasValue)
                     {
                         // Pass in the line number as an argument to have Notepad++ jump to the pertinent line.
-                        fileName = string.Format("\"{0}\" -n{1}", fileName, line.Value);
+                        fileName = string.Format("\"{0}\" -n{1}", fileName, line.Value + 1);
                     }
                 }
                 Process.Start(exePath, fileName);
             }
+        }
+        private static readonly RegistryKey SoftwareKey = RegistryKey
+            .OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64)
+            .OpenSubKey("Software", true);
+        private readonly string LastDirectoryKeyName = "LastDirectory";
+
+        private string GetLastDirectory()
+        {
+            return SoftwareKey.OpenSubKey("FileSearch")?.GetValue(LastDirectoryKeyName) as string;
+        }
+
+        private void SetLastDirectory(string value)
+        {
+            SoftwareKey.CreateSubKey("FileSearch").SetValue(LastDirectoryKeyName, value);
         }
     }
 }
