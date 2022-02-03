@@ -306,7 +306,12 @@ namespace Search
                 // Open the file in Notepad++. If Notepad++ is not installed, open with notepad.
                 // See: http://stackoverflow.com/a/13755363/772086
                 string exePath = "notepad.exe";
-                var nppDir = (string)Registry.GetValue("HKEY_LOCAL_MACHINE\\SOFTWARE\\Notepad++", null, null);
+                
+                var nppDir = (string)Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Notepad++", null, null);
+                if (string.IsNullOrEmpty(nppDir))
+                {
+                    nppDir = (string)Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Notepad++", null, null);
+                }
                 if (!string.IsNullOrEmpty(nppDir))
                 {
                     exePath = Path.Combine(nppDir, "Notepad++.exe");
@@ -317,6 +322,7 @@ namespace Search
                         fileName = string.Format("\"{0}\" -n{1}", fileName, line.Value + 1);
                     }
                 }
+                
                 Process.Start(exePath, fileName);
             }
         }
